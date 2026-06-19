@@ -1,0 +1,7 @@
+name = "pdd-sync"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+[[kv_namespaces]]
+binding = "SYNC"
+id = "0122fb93e60e4cc2ae5f365879cbb800"

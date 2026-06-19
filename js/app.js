@@ -43,6 +43,91 @@ function answerQuestion(id, ok){
   else { r.wrong++; r.box = 0; r.last='wrong'; }
   r.due = Date.now() + SRS_DAYS[r.box]*86400000;
   saveProgress();
+  Sync.schedule();
+}
+
+/* ---------- cloud sync (Cloudflare Worker) ---------- */
+const SYNC_URL = 'https://pdd-sync.yeszanovkudyret.workers.dev';
+const Sync = {
+  code: LS.get('pdd_sync_code', ''),
+  busy: false,
+  _timer: null,
+  enabled(){ return !!this.code; },
+  newCode(){
+    const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let s=''; const r=new Uint32Array(16);
+    (crypto.getRandomValues?crypto:{getRandomValues:arr=>{for(let i=0;i<arr.length;i++)arr[i]=Math.random()*4294967296>>>0;}}).getRandomValues(r);
+    for(let i=0;i<16;i++) s+=a[r[i]%a.length];
+    return s;
+  },
+  setCode(code){ this.code=code.trim(); LS.set('pdd_sync_code', this.code); },
+  disable(){ this.code=''; LS.set('pdd_sync_code',''); },
+  payload(){ return { v:1, ts:Date.now(), progress, favs:[...favs] }; },
+
+  merge(remote){
+    if(!remote) return false;
+    let changed=false;
+    if(remote.progress){
+      for(const id in remote.progress){
+        const r=remote.progress[id], l=progress[id];
+        // pick the more-advanced record: higher seen, tie -> later activity (due)
+        const take = !l || r.seen>l.seen || (r.seen===l.seen && (r.due||0)>(l.due||0));
+        if(take && JSON.stringify(l)!==JSON.stringify(r)){ progress[id]=r; changed=true; }
+      }
+    }
+    if(Array.isArray(remote.favs)){
+      const before=favs.size; remote.favs.forEach(id=>favs.add(id));
+      if(favs.size!==before) changed=true;
+    }
+    if(changed){ saveProgress(); saveFav(); }
+    return changed;
+  },
+
+  async pull(){
+    const res=await fetch(SYNC_URL+'/'+encodeURIComponent(this.code));
+    if(!res.ok) throw new Error('pull '+res.status);
+    return (await res.json()).data;
+  },
+  async push(){
+    const res=await fetch(SYNC_URL+'/'+encodeURIComponent(this.code),{
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(this.payload())
+    });
+    if(!res.ok) throw new Error('push '+res.status);
+  },
+
+  // full reconcile: pull -> merge -> push merged
+  async sync(silent){
+    if(!this.enabled()||this.busy) return;
+    this.busy=true; updateSyncStatus('syncing');
+    try{
+      const remote=await this.pull();
+      const changed=this.merge(remote);
+      await this.push();
+      LS.set('pdd_sync_last', Date.now());
+      updateSyncStatus('ok');
+      if(changed && !silent){ toast('Прогресс синхронизирован'); render(); }
+      else if(!silent){ toast('Синхронизировано'); }
+    }catch(e){
+      console.warn('sync failed',e); updateSyncStatus('error');
+      if(!silent) toast('Ошибка синхронизации');
+    }finally{ this.busy=false; }
+  },
+
+  // debounced push after local changes
+  schedule(){
+    if(!this.enabled()) return;
+    clearTimeout(this._timer);
+    updateSyncStatus('pending');
+    this._timer=setTimeout(()=>{ this.push().then(()=>{LS.set('pdd_sync_last',Date.now());updateSyncStatus('ok');}).catch(()=>updateSyncStatus('error')); }, 2500);
+  }
+};
+function updateSyncStatus(state){
+  const dot=document.querySelector('#syncDot');
+  if(!dot) return;
+  const map={ok:['#22c55e','синхронизировано'],pending:['#f59e0b','сохраняю…'],syncing:['#3b82f6','синхронизация…'],error:['#ef4444','ошибка сети']};
+  const m=map[state]||map.ok; dot.style.background=m[0]; dot.title=m[1];
+  const lbl=document.querySelector('#syncDotLbl'); if(lbl) lbl.textContent=m[1];
 }
 
 /* ---------- stats ---------- */
@@ -138,7 +223,7 @@ function questionCard(q, opts){
 
   if(opts.showFav){
     const fb=node.querySelector('.fav');
-    fb.onclick=()=>{ if(favs.has(q.id)){favs.delete(q.id);fb.classList.remove('on');} else {favs.add(q.id);fb.classList.add('on');} saveFav(); };
+    fb.onclick=()=>{ if(favs.has(q.id)){favs.delete(q.id);fb.classList.remove('on');} else {favs.add(q.id);fb.classList.add('on');} saveFav(); Sync.schedule(); };
   }
   return node;
 }
@@ -195,9 +280,10 @@ function viewHome(){
         <button class="btn" id="goExam">Начать экзамен</button>
       </div>
     </div>
+    <div class="card" id="syncCard"></div>
     <div class="card">
       <div class="row spread">
-        <div class="muted">Данные и прогресс хранятся в этом браузере. Видео загружаются из интернета.</div>
+        <div class="muted">Прогресс хранится в этом браузере. Видео загружаются из интернета.</div>
         <button class="btn ghost sm" id="reset">Сбросить прогресс</button>
       </div>
     </div>
@@ -206,9 +292,66 @@ function viewHome(){
   c.querySelector('#goExam').onclick=()=>App.go('exam');
   const gr=c.querySelector('#goReview'); if(gr&&!gr.disabled) gr.onclick=()=>App.go('review');
   c.querySelector('#reset').onclick=()=>{
-    if(confirm('Сбросить весь прогресс и избранное?')){ progress={}; favs=new Set(); saveProgress(); saveFav(); render(); }
+    if(confirm('Сбросить весь прогресс и избранное на этом устройстве?')){ progress={}; favs=new Set(); saveProgress(); saveFav(); render(); }
   };
+  renderSyncCard(c.querySelector('#syncCard'));
   return c;
+}
+
+function renderSyncCard(host){
+  if(!host) return;
+  const last=LS.get('pdd_sync_last',0);
+  const lastTxt=last?new Date(last).toLocaleString():'—';
+  if(Sync.enabled()){
+    host.innerHTML=`
+      <div class="row spread" style="align-items:flex-start">
+        <div>
+          <h2 style="margin-bottom:6px">🔄 Синхронизация включена</h2>
+          <div class="row" style="gap:8px;margin-bottom:8px">
+            <span id="syncDot" style="width:10px;height:10px;border-radius:50%;background:#22c55e;display:inline-block"></span>
+            <span class="muted" id="syncDotLbl">синхронизировано</span>
+          </div>
+          <div class="muted" style="font-size:13px">Последняя синхронизация: ${lastTxt}</div>
+        </div>
+        <button class="btn ghost sm" id="syncNow">Синхронизировать</button>
+      </div>
+      <div style="margin-top:14px">
+        <div class="muted" style="font-size:13px;margin-bottom:6px">Ваш код синхронизации (введите его на других устройствах):</div>
+        <div class="row" style="gap:8px">
+          <input type="text" id="syncCodeVal" value="${esc(Sync.code)}" readonly style="font-family:monospace;letter-spacing:1px;flex:1">
+          <button class="btn sm" id="copyCode">Копировать</button>
+          <button class="btn ghost sm" id="syncOff">Отключить</button>
+        </div>
+      </div>`;
+    host.querySelector('#syncNow').onclick=()=>Sync.sync(false);
+    host.querySelector('#copyCode').onclick=()=>{ navigator.clipboard?.writeText(Sync.code); toast('Код скопирован'); };
+    host.querySelector('#syncOff').onclick=()=>{ if(confirm('Отключить синхронизацию на этом устройстве? Прогресс останется локально.')){ Sync.disable(); render(); } };
+  } else {
+    host.innerHTML=`
+      <h2 style="margin-bottom:6px">🔄 Синхронизация между устройствами</h2>
+      <p class="muted" style="margin-top:0">Продолжайте с того же места на телефоне, ноутбуке и любом устройстве. Прогресс хранится в облаке по секретному коду.</p>
+      <div class="row" style="gap:10px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn" id="syncCreate">Включить и создать код</button>
+        <span class="muted">или</span>
+        <input type="text" id="syncCodeIn" placeholder="вставьте код с другого устройства" style="flex:1;min-width:200px">
+        <button class="btn ghost" id="syncJoin">Подключиться</button>
+      </div>`;
+    host.querySelector('#syncCreate').onclick=async()=>{
+      Sync.setCode(Sync.newCode());
+      await Sync.push().catch(()=>{});
+      LS.set('pdd_sync_last',Date.now());
+      toast('Синхронизация включена');
+      render();
+    };
+    host.querySelector('#syncJoin').onclick=async()=>{
+      const v=host.querySelector('#syncCodeIn').value.trim();
+      if(!/^[A-Za-z0-9_-]{8,64}$/.test(v)){ toast('Код выглядит неверно'); return; }
+      Sync.setCode(v);
+      await Sync.sync(true);   // pull+merge+push
+      toast('Подключено и синхронизировано');
+      render();
+    };
+  }
 }
 
 /* ---------- LEARN ---------- */
@@ -440,4 +583,10 @@ const _go=App.go;
 App.go=function(v){ if(v==='exam') examState=null; if(v==='review') reviewState=null; _go(v); };
 
 render();
+
+// initial cloud sync on load (pull remote, merge, push) + sync when tab regains focus
+if(Sync.enabled()){
+  Sync.sync(true).then(()=>render());
+  window.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') Sync.sync(true); });
+}
 })();
