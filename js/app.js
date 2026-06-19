@@ -242,7 +242,10 @@ App.setLang = function(l){
 App.go = function(v){ view=v; render(); window.scrollTo(0,0); };
 
 function setActiveTab(){
-  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active', b.dataset.view===view));
+  document.querySelectorAll('.tab, .bnav-btn').forEach(b=>b.classList.toggle('active', b.dataset.view===view));
+}
+function syncLink(code){
+  return location.origin + location.pathname + '#sync=' + code;
 }
 
 /* ---------- HOME ---------- */
@@ -322,10 +325,20 @@ function renderSyncCard(host){
           <button class="btn sm" id="copyCode">Копировать</button>
           <button class="btn ghost sm" id="syncOff">Отключить</button>
         </div>
+        <button class="btn ghost sm" id="showQr" style="margin-top:10px">📱 Показать QR-код для телефона</button>
+        <div id="qrWrap"></div>
       </div>`;
     host.querySelector('#syncNow').onclick=()=>Sync.sync(false);
     host.querySelector('#copyCode').onclick=()=>{ navigator.clipboard?.writeText(Sync.code); toast('Код скопирован'); };
     host.querySelector('#syncOff').onclick=()=>{ if(confirm('Отключить синхронизацию на этом устройстве? Прогресс останется локально.')){ Sync.disable(); render(); } };
+    host.querySelector('#showQr').onclick=function(){
+      const wrap=host.querySelector('#qrWrap');
+      if(wrap.dataset.open){ wrap.innerHTML=''; delete wrap.dataset.open; this.textContent='📱 Показать QR-код для телефона'; return; }
+      wrap.innerHTML='<div class="qrbox"><div id="qrImg"></div><div class="qrhint">Отсканируйте камерой телефона — сайт откроется и подключится автоматически</div></div>';
+      try{ new QRCode(wrap.querySelector('#qrImg'),{text:syncLink(Sync.code),width:200,height:200,correctLevel:QRCode.CorrectLevel.M}); }
+      catch(e){ wrap.innerHTML='<div class="muted" style="margin-top:8px">Не удалось построить QR. Используйте код выше.</div>'; }
+      wrap.dataset.open='1'; this.textContent='Скрыть QR-код';
+    };
   } else {
     host.innerHTML=`
       <h2 style="margin-bottom:6px">🔄 Синхронизация между устройствами</h2>
@@ -581,6 +594,16 @@ function render(){
 // reset transient state when switching mode
 const _go=App.go;
 App.go=function(v){ if(v==='exam') examState=null; if(v==='review') reviewState=null; _go(v); };
+
+// auto-connect via QR/link: ...#sync=CODE
+(function(){
+  const m=/[#&?]sync=([A-Za-z0-9_-]{8,64})/.exec(location.hash);
+  if(m){
+    Sync.setCode(m[1]);
+    history.replaceState(null,'',location.pathname);
+    view='home';
+  }
+})();
 
 render();
 

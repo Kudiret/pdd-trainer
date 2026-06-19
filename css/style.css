@@ -136,3 +136,57 @@ input[type=text]{min-width:220px}
 .checkbox{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:14px;cursor:pointer}
 a.link{color:var(--accent);cursor:pointer}
 .empty{text-align:center;color:var(--muted);padding:40px}
+
+/* QR */
+.qrbox{display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:14px;padding:16px;background:#fff;border-radius:12px;width:max-content;max-width:100%}
+.qrbox canvas,.qrbox img{display:block}
+.qrhint{color:#111;font-size:12px;text-align:center;max-width:200px}
+
+/* Bottom navigation — mobile only */
+.bottomnav{display:none}
+
+@media(max-width:760px){
+  /* hide top tabs, show bottom nav */
+  .tabs{display:none}
+  .topbar{padding:10px 14px;gap:10px}
+  .brand{font-size:16px;flex:1}
+  main{padding:16px 12px calc(76px + env(safe-area-inset-bottom))}
+
+  .bottomnav{
+    display:flex;position:fixed;left:0;right:0;bottom:0;z-index:60;
+    background:rgba(20,23,30,.96);backdrop-filter:blur(10px);
+    border-top:1px solid var(--line);
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+  }
+  .bnav-btn{
+    flex:1;background:none;border:none;color:var(--muted);
+    display:flex;flex-direction:column;align-items:center;gap:2px;
+    font-size:11px;font-weight:600;padding:6px 2px;border-radius:10px;
+  }
+  .bnav-btn .ic{font-size:21px;line-height:1}
+  .bnav-btn.active{color:#fff}
+  .bnav-btn.active .ic{transform:translateY(-1px)}
+
+  /* bigger tap targets / readable text */
+  h1{font-size:21px}
+  .qtext{font-size:18px}
+  .ans{padding:15px 16px;font-size:16px}
+  .card{padding:16px}
+  .btn{padding:13px 18px}
+  .btn.sm{padding:9px 13px}
+  select,input[type=text],input[type=number]{padding:12px 13px;font-size:16px} /* 16px stops iOS auto-zoom */
+  input[type=text]{min-width:0;width:100%}
+  .toolbar{gap:10px}
+  .toolbar #flt,.toolbar #search{width:100%}
+  .qmedia{max-height:46vh}
+  .numgrid{grid-template-columns:repeat(auto-fill,minmax(42px,1fr));max-height:200px}
+  .grid.cols-3{grid-template-columns:1fr}
+  .navrow .btn{flex:1}
+  .qhead{gap:8px}
+  .result-big{font-size:40px}
+}
+
+@media(max-width:380px){
+  .bnav-btn{font-size:10px}
+  .grid.cols-4{grid-template-columns:1fr 1fr}
+}
