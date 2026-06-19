@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ПДД Тренажёр — 811 вопросов</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand" onclick="App.go('home')">🚦 ПДД Тренажёр</div>
+  <nav class="tabs">
+    <button class="tab" data-view="home" onclick="App.go('home')">Обзор</button>
+    <button class="tab" data-view="learn" onclick="App.go('learn')">Учить</button>
+    <button class="tab" data-view="exam" onclick="App.go('exam')">Экзамен</button>
+    <button class="tab" data-view="review" onclick="App.go('review')">Повторение</button>
+  </nav>
+  <div class="lang">
+    <button data-lang="ru" onclick="App.setLang('ru')">RU</button>
+    <button data-lang="kz" onclick="App.setLang('kz')">KZ</button>
+    <button data-lang="en" onclick="App.setLang('en')">EN</button>
+  </div>
+</header>
+
+<main id="app"></main>
+
+<div id="toast" class="toast"></div>
+
+<script src="js/questions.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
